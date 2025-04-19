@@ -1,23 +1,27 @@
+# Importations
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import logging
+
+# Scikit-learn et autres librairies
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, BaggingClassifier, AdaBoostClassifier, StackingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import DecisionTreeClassifier, plot_tree
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_curve, auc
 from imblearn.over_sampling import SMOTE
 
-# Configure Logging
+# Configuration du Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Load the dataset
-csv_file_path = "wdbc.data"  
+# Chargement du Dataset
+csv_file_path = "wdbc.data"
 column_names = [
     "id", "diagnosis", "radius_mean", "texture_mean", "perimeter_mean", "area_mean", "smoothness_mean",
     "compactness_mean", "concavity_mean", "concave_points_mean", "symmetry_mean", "fractal_dimension_mean",
@@ -26,116 +30,144 @@ column_names = [
     "perimeter_worst", "area_worst", "smoothness_worst", "compactness_worst", "concavity_worst",
     "concave_points_worst", "symmetry_worst", "fractal_dimension_worst"
 ]
-data_frame = pd.read_csv(csv_file_path, header=None, names=column_names)
+data = pd.read_csv(csv_file_path, header=None, names=column_names)
 
-# Inspecting the dataset
-logging.info("Dataset loaded successfully from CSV.")
-logging.info(f"Dataset Shape: {data_frame.shape}")
-logging.info("Dataset Info:")
-logging.info(data_frame.info())
-logging.info("Dataset Description:")
-logging.info(data_frame.describe())
+# Informations sur le dataset
+logging.info("Dataset loaded successfully.")
+logging.info(f"Shape: {data.shape}")
+logging.info(data.info())
+logging.info(data.describe())
 
-# Extracting labels (Diagnosis column) and dropping the ID column
-labels = data_frame['diagnosis'].map({'M': 1, 'B': 0})  # Convert M to 1 (Malignant) and B to 0 (Benign)
-data_frame = data_frame.drop(columns=['id', 'diagnosis'])
+# Prétraitement
+labels = data['diagnosis'].map({'M': 1, 'B': 0})
+data = data.drop(columns=['id', 'diagnosis'])
 
-# Visualizing Class Distribution
+# Visualisation de la distribution des classes
 sns.countplot(x=labels)
-plt.title("Class Distribution (Malignant vs Benign)")
+plt.title("Distribution des classes (Malin vs Bénin)")
 plt.show()
 
-# Checking for Missing Values
-logging.info("Checking for missing values...")
-logging.info(data_frame.isnull().sum())
+# Vérification des valeurs manquantes et doublons
+logging.info(f"Missing values:\n{data.isnull().sum()}")
+logging.info(f"Duplicated rows: {data.duplicated().sum()}")
 
-# Checking for duplicate rows
-logging.info("Checking for duplicate rows...")
-logging.info(f"Duplicate Rows: {data_frame.duplicated().sum()}")
-
-# Correlation Heatmap to visualize relationships between features
+# Corrélation entre caractéristiques
 plt.figure(figsize=(12, 10))
-sns.heatmap(data_frame.corr(), cmap='coolwarm', annot=False)
-plt.title("Feature Correlation Heatmap")
+sns.heatmap(data.corr(), cmap='coolwarm')
+plt.title("Heatmap des corrélations")
 plt.show()
 
-# Splitting Data into Training and Test Sets
-X_train, X_test, y_train, y_test = train_test_split(data_frame, labels, test_size=0.2, random_state=42, stratify=labels)
-logging.info("Data split into training and testing sets.")
+# Séparation des données
+X_train, X_test, y_train, y_test = train_test_split(
+    data, labels, test_size=0.2, random_state=42, stratify=labels
+)
+logging.info("Données séparées en train et test.")
 
-# Handling Imbalanced Data with SMOTE
+# Traitement des données déséquilibrées
 smote = SMOTE(random_state=42)
 X_train, y_train = smote.fit_resample(X_train, y_train)
-logging.info("Applied SMOTE to balance the dataset.")
+logging.info("SMOTE appliqué.")
 
-# Standardizing Features
+# Normalisation
 scaler = StandardScaler()
 X_train = scaler.fit_transform(X_train)
 X_test = scaler.transform(X_test)
-logging.info("Feature scaling completed.")
+logging.info("Données normalisées.")
 
-# Models to Evaluate
+# Définition des modèles
 models = {
-    "Logistic Regression": LogisticRegression(class_weight='balanced'),
+    "KNN": KNeighborsClassifier(),
+    "SVM": SVC(probability=True, random_state=42),
+    "Decision Tree": DecisionTreeClassifier(class_weight='balanced', random_state=42),
+    "Bagging": BaggingClassifier(n_estimators=100, random_state=42),
     "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
-    "SVM": SVC(probability=True),
-    "Decision Tree": DecisionTreeClassifier(class_weight='balanced'),
-    "KNN": KNeighborsClassifier()
+    "Boosting": AdaBoostClassifier(n_estimators=100, random_state=42),
+    "Stacking": StackingClassifier(
+        estimators=[
+            ('lr', LogisticRegression(class_weight='balanced', max_iter=1000)),
+            ('rf', RandomForestClassifier(n_estimators=100, random_state=42)),
+            ('svc', SVC(probability=True, random_state=42))
+        ],
+        final_estimator=LogisticRegression()
+    ),
+    "Naive Bayes": GaussianNB(),
+    "Logistic Regression": LogisticRegression(class_weight='balanced', max_iter=1000)
+
 }
 
-# Model Training and Evaluation
+# Entraînement et évaluation
 results = {}
-plt.figure(figsize=(10, 5))
-
 for name, model in models.items():
     logging.info(f"Training {name}...")
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    results[name] = accuracy
-    logging.info(f"Accuracy for {name}: {accuracy * 100:.2f}%")
 
-    # Confusion Matrix
-    cm = confusion_matrix(y_test, y_pred)
+    # Précision
+    acc = accuracy_score(y_test, y_pred)
+    results[name] = acc
+    logging.info(f"Accuracy for {name}: {acc * 100:.2f}%")
+
+    # Matrice de confusion
     plt.figure(figsize=(5, 4))
+    cm = confusion_matrix(y_test, y_pred)
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Benign', 'Malignant'],
                 yticklabels=['Benign', 'Malignant'])
-    plt.xlabel('Predicted')
-    plt.ylabel('Actual')
-    plt.title(f"Confusion Matrix for {name}")
+    plt.title(f"Confusion Matrix - {name}")
+    plt.xlabel('Prédit')
+    plt.ylabel('Réel')
     plt.show()
 
-    # Classification Report
-    logging.info(f"Classification Report for {name}:\n%s", classification_report(y_test, y_pred))
+    # Rapport de classification
+    report = classification_report(y_test, y_pred, output_dict=True)
+    report_df = pd.DataFrame(report).transpose()
+    plt.figure(figsize=(6, 4))
+    sns.barplot(x=report_df.index, y=report_df['f1-score'])
+    plt.title(f"F1-Score par classe - {name}")
+    plt.xticks(rotation=45)
+    plt.ylim(0, 1)
+    plt.show()
 
-    # ROC Curve
-    y_probs = model.predict_proba(X_test)[:, 1] if hasattr(model, "predict_proba") else model.decision_function(X_test)
-    fpr, tpr, _ = roc_curve(y_test, y_probs)
+    # Courbe ROC
+    if hasattr(model, "predict_proba"):
+        y_scores = model.predict_proba(X_test)[:, 1]
+    else:
+        y_scores = model.decision_function(X_test)
+
+    fpr, tpr, thresholds = roc_curve(y_test, y_scores)
     roc_auc = auc(fpr, tpr)
-    plt.plot(fpr, tpr, label=f'{name} (AUC = {roc_auc:.2f})')
 
-plt.plot([0, 1], [0, 1], 'k--')
-plt.xlabel("False Positive Rate")
-plt.ylabel("True Positive Rate")
-plt.title("ROC Curve Comparison")
-plt.legend()
-plt.show()
+    plt.figure(figsize=(6, 4))
+    plt.plot(fpr, tpr, label=f"AUC = {roc_auc:.2f}")
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.title(f"ROC Curve - {name}")
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.legend()
+    plt.show()
 
-# Comparing Model Performance
-plt.figure(figsize=(10, 5))
+    # Affichage de l'arbre pour Decision Tree
+    if name == "Decision Tree":
+        plt.figure(figsize=(20, 10))
+        plot_tree(model, filled=True, feature_names=data.columns, class_names=["Benign", "Malignant"], max_depth=3)
+        plt.title("Visualisation de l'Arbre de Décision (3 niveaux)")
+        plt.show()
+
+# Comparaison finale des performances
+plt.figure(figsize=(12, 6))
 sns.barplot(x=list(results.keys()), y=list(results.values()))
-plt.title("Model Comparison")
+plt.title("Comparaison des performances des modèles")
 plt.ylabel("Accuracy")
 plt.xticks(rotation=45)
+plt.ylim(0, 1)
 plt.show()
 
-# Feature Importance (Random Forest)
+# Importance des variables (Random Forest)
 rf = models["Random Forest"]
-feature_importances = pd.Series(rf.feature_importances_, index=data_frame.columns).sort_values(ascending=False)
+importances = pd.Series(rf.feature_importances_, index=data.columns).sort_values(ascending=False)
 plt.figure(figsize=(10, 6))
-sns.barplot(x=feature_importances.values, y=feature_importances.index)
-plt.title("Feature Importance from Random Forest")
-plt.xlabel("Importance Score")
+sns.barplot(x=importances.values, y=importances.index)
+plt.title("Importance des caractéristiques (Random Forest)")
+plt.xlabel("Importance")
 plt.show()
 
-logging.info("Model evaluation completed and results visualized.")
+logging.info("Évaluation de tous les modèles terminée.")
